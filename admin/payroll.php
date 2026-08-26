@@ -7,12 +7,12 @@ if (!verifyExplicitWorkspaceClearance('payroll.php')) {
     exit;
 }
 
-header('Cache-Control: no-store, no-cache, must-revalidate, max-age=0');
-header('Pragma: no-cache');
-header('Expires: 0');
-header('X-Content-Type-Options: nosniff');
-header('X-Frame-Options: DENY');
-header('Referrer-Policy: same-origin');
+if (!headers_sent()) header('Cache-Control: no-store, no-cache, must-revalidate, max-age=0');
+if (!headers_sent()) header('Pragma: no-cache');
+if (!headers_sent()) header('Expires: 0');
+if (!headers_sent()) header('X-Content-Type-Options: nosniff');
+if (!headers_sent()) header('X-Frame-Options: DENY');
+if (!headers_sent()) header('Referrer-Policy: same-origin');
 
 date_default_timezone_set('Africa/Nairobi');
 if (empty($_SESSION['payroll_csrf'])) $_SESSION['payroll_csrf'] = bin2hex(random_bytes(32));
@@ -44,32 +44,11 @@ $logAction = static function ($type, $details) use ($conn, $actorId, $actorName)
 };
 $findReferenceCollision = static function ($reference, $recordId = 0) use ($conn) {
     $checks = [
-        [
-            'sql' => "SELECT id FROM payroll_records WHERE id<>? AND reference_number IS NOT NULL AND UPPER(TRIM(reference_number))=? LIMIT 1",
-            'types' => 'is',
-            'params' => [$recordId, $reference],
-            'message' => 'That payment reference is already attached to another payroll record.'
-        ],
-        [
-            'sql' => "SELECT id FROM payments WHERE transaction_code IS NOT NULL AND TRIM(transaction_code)<>'' AND UPPER(TRIM(transaction_code))=? LIMIT 1",
-            'types' => 's',
-            'params' => [$reference],
-            'message' => 'That payment reference is already used in a customer/sales payment.'
-        ],
-        [
-            'sql' => "SELECT id FROM operating_expenses WHERE reference_number IS NOT NULL AND TRIM(reference_number)<>'' AND UPPER(TRIM(reference_number))=? LIMIT 1",
-            'types' => 's',
-            'params' => [$reference],
-            'message' => 'That payment reference is already used in an operating expense.'
-        ],
-        [
-            'sql' => "SELECT id FROM refund_logs WHERE reversal_reference IS NOT NULL AND TRIM(reversal_reference)<>'' AND UPPER(TRIM(reversal_reference))=? LIMIT 1",
-            'types' => 's',
-            'params' => [$reference],
-            'message' => 'That payment reference is already used in a refund or reversal record.'
-        ]
+        ['sql' => "SELECT id FROM payroll_records WHERE id<>? AND reference_number IS NOT NULL AND UPPER(TRIM(reference_number))=? LIMIT 1", 'types' => 'is', 'params' => [$recordId, $reference], 'message' => 'That payment reference is already attached to another payroll record.'],
+        ['sql' => "SELECT id FROM payments WHERE transaction_code IS NOT NULL AND TRIM(transaction_code)<>'' AND UPPER(TRIM(transaction_code))=? LIMIT 1", 'types' => 's', 'params' => [$reference], 'message' => 'That payment reference is already used in a customer/sales payment.'],
+        ['sql' => "SELECT id FROM operating_expenses WHERE reference_number IS NOT NULL AND TRIM(reference_number)<>'' AND UPPER(TRIM(reference_number))=? LIMIT 1", 'types' => 's', 'params' => [$reference], 'message' => 'That payment reference is already used in an operating expense.'],
+        ['sql' => "SELECT id FROM refund_logs WHERE reversal_reference IS NOT NULL AND TRIM(reversal_reference)<>'' AND UPPER(TRIM(reversal_reference))=? LIMIT 1", 'types' => 's', 'params' => [$reference], 'message' => 'That payment reference is already used in a refund or reversal record.']
     ];
-
     foreach ($checks as $check) {
         $stmt = $conn->prepare($check['sql']);
         if (!$stmt) return 'The payment reference could not be verified safely. Please try again.';
@@ -84,6 +63,18 @@ $findReferenceCollision = static function ($reference, $recordId = 0) use ($conn
     }
     return null;
 };
+
+$defaultFrom = date('Y-m-01');
+$defaultTo = date('Y-m-t');
+$from = (string)($_GET['date_from'] ?? ($_SESSION['payroll_filter_from'] ?? $defaultFrom));
+$to = (string)($_GET['date_to'] ?? ($_SESSION['payroll_filter_to'] ?? $defaultTo));
+if (!$isDate($from)) $from = $defaultFrom;
+if (!$isDate($to)) $to = $defaultTo;
+if ($from > $to) [$from, $to] = [$to, $from];
+if (array_key_exists('date_from', $_GET) || array_key_exists('date_to', $_GET)) {
+    $_SESSION['payroll_filter_from'] = $from;
+    $_SESSION['payroll_filter_to'] = $to;
+}
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if (!hash_equals($_SESSION['payroll_csrf'], (string)($_POST['csrf_token'] ?? ''))) {
@@ -228,20 +219,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         } else {
             $error = 'Invalid payroll action.';
         }
-
-        if ($success !== '') {
-            $_SESSION['payroll_csrf'] = bin2hex(random_bytes(32));
-        }
+        if ($success !== '') $_SESSION['payroll_csrf'] = bin2hex(random_bytes(32));
     }
 }
-
-$defaultFrom = date('Y-m-01');
-$defaultTo = date('Y-m-t');
-$from = (string)($_GET['date_from'] ?? $defaultFrom);
-$to = (string)($_GET['date_to'] ?? $defaultTo);
-if (!$isDate($from)) $from = $defaultFrom;
-if (!$isDate($to)) $to = $defaultTo;
-if ($from > $to) [$from, $to] = [$to, $from];
 
 $employees = [];
 $result = $conn->query("SELECT u.id,u.fullname,r.role_name,s.monthly_basic_salary FROM users u JOIN roles r ON r.id=u.role_id LEFT JOIN staff_salary_profiles s ON s.employee_id=u.id WHERE LOWER(r.role_name)<>'customer' AND LOWER(u.account_status)='active' ORDER BY u.fullname");
