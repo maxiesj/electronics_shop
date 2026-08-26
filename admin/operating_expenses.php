@@ -3,9 +3,17 @@ require_once __DIR__ . '/../session_auth.php';
 if (session_status() === PHP_SESSION_NONE) session_start();
 require_once __DIR__ . '/../db.php';
 if (!verifyWorkspaceClearance('operating_expenses.php')) {
-    header('Location: ../login.php?msg=err_unauthorized_access');
+    if (!headers_sent()) header('Location: ../login.php?msg=err_unauthorized_access');
     exit;
 }
+
+if (!headers_sent()) header('Cache-Control: no-store, no-cache, must-revalidate, max-age=0');
+if (!headers_sent()) header('Pragma: no-cache');
+if (!headers_sent()) header('Expires: 0');
+if (!headers_sent()) header('X-Content-Type-Options: nosniff');
+if (!headers_sent()) header('X-Frame-Options: DENY');
+if (!headers_sent()) header('Referrer-Policy: same-origin');
+
 date_default_timezone_set('Africa/Nairobi');
 if (empty($_SESSION['expense_csrf'])) $_SESSION['expense_csrf'] = bin2hex(random_bytes(32));
 
@@ -15,10 +23,21 @@ $categories = ['Transport','Rent','Utilities','Internet & Airtime','Delivery & L
 $methods = ['Bank Transfer','M-Pesa','Cash','Cheque','Card'];
 $error = '';
 $success = '';
+
 $isDate = static function ($value) {
     $d = DateTime::createFromFormat('Y-m-d', (string)$value);
     return $d && $d->format('Y-m-d') === $value;
 };
+
+$parseMoney = static function ($value) {
+    $raw = trim((string)$value);
+    if (!preg_match('/^(?:0|[1-9]\d{0,8})(?:\.\d{1,2})?$/', $raw)) return null;
+    [$whole, $fraction] = array_pad(explode('.', $raw, 2), 2, '');
+    $cents = ((int)$whole * 100) + (int)str_pad($fraction, 2, '0');
+    if ($cents <= 0 || $cents > 999999999999) return null;
+    return $cents;
+};
+
 $logAction = static function ($type, $details) use ($conn, $actorId, $actorName) {
     $stmt = $conn->prepare("INSERT INTO staff_logs (user_id,staff_name,action_type,action_details) VALUES (?,?,?,?)");
     if ($stmt) {
@@ -28,31 +47,84 @@ $logAction = static function ($type, $details) use ($conn, $actorId, $actorName)
     }
 };
 
+$findReferenceCollision = static function ($reference) use ($conn) {
+    $checks = [
+        [
+            'sql' => "SELECT id FROM operating_expenses WHERE reference_number IS NOT NULL AND TRIM(reference_number)<>'' AND UPPER(TRIM(reference_number))=? LIMIT 1",
+            'message' => 'That payment reference is already attached to another operating expense.'
+        ],
+        [
+            'sql' => "SELECT id FROM payroll_records WHERE reference_number IS NOT NULL AND TRIM(reference_number)<>'' AND UPPER(TRIM(reference_number))=? LIMIT 1",
+            'message' => 'That payment reference is already used in payroll.'
+        ],
+        [
+            'sql' => "SELECT id FROM payments WHERE transaction_code IS NOT NULL AND TRIM(transaction_code)<>'' AND UPPER(TRIM(transaction_code))=? LIMIT 1",
+            'message' => 'That payment reference is already used in a customer/sales payment.'
+        ],
+        [
+            'sql' => "SELECT id FROM refund_logs WHERE reversal_reference IS NOT NULL AND TRIM(reversal_reference)<>'' AND UPPER(TRIM(reversal_reference))=? LIMIT 1",
+            'message' => 'That payment reference is already used in a refund or reversal record.'
+        ]
+    ];
+
+    foreach ($checks as $check) {
+        $stmt = $conn->prepare($check['sql']);
+        if (!$stmt) return 'The payment reference could not be verified safely. Please try again.';
+        $stmt->bind_param('s', $reference);
+        if (!$stmt->execute()) {
+            $stmt->close();
+            return 'The payment reference could not be verified safely. Please try again.';
+        }
+        $match = $stmt->get_result()->fetch_assoc();
+        $stmt->close();
+        if ($match) return $check['message'];
+    }
+    return null;
+};
+
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if (!hash_equals($_SESSION['expense_csrf'], (string)($_POST['csrf_token'] ?? ''))) {
         $error = 'This expense form expired. Refresh the page and try again.';
     } else {
         $action = (string)($_POST['expense_action'] ?? '');
+
         if ($action === 'add') {
             $expenseDate = (string)($_POST['expense_date'] ?? '');
             $category = (string)($_POST['category'] ?? '');
-            $amount = round((float)($_POST['amount'] ?? 0), 2);
+            $amountCents = $parseMoney($_POST['amount'] ?? '');
             $description = trim((string)($_POST['description'] ?? ''));
             $method = (string)($_POST['payment_method'] ?? '');
-            $reference = trim((string)($_POST['reference_number'] ?? ''));
-            if (!$isDate($expenseDate) || !in_array($category, $categories, true) || $amount <= 0 || $amount > 9999999999.99 || strlen($description) < 3 || strlen($description) > 500 || !in_array($method, $methods, true) || $reference === '' || strlen($reference) > 100) {
+            $reference = strtoupper(trim((string)($_POST['reference_number'] ?? '')));
+
+            if (!$isDate($expenseDate) || $expenseDate > date('Y-m-d') || !in_array($category, $categories, true) || $amountCents === null || strlen($description) < 3 || strlen($description) > 500 || !in_array($method, $methods, true) || !preg_match('/^[A-Z0-9][A-Z0-9._\/-]{2,99}$/', $reference)) {
                 $error = 'Check the expense date, category, amount, description, payment method, and reference.';
             } else {
-                $stmt = $conn->prepare("INSERT INTO operating_expenses(expense_date,category,amount,description,payment_method,reference_number,recorded_by,recorded_by_name) VALUES (?,?,?,?,?,?,?,?)");
-                $stmt->bind_param('ssdsssis', $expenseDate, $category, $amount, $description, $method, $reference, $actorId, $actorName);
-                if ($stmt->execute()) {
-                    $expenseId = $stmt->insert_id;
-                    $success = 'Expense #' . $expenseId . ' recorded.';
-                    $logAction('Operating Expense', 'Expense #' . $expenseId . ' recorded: ' . $category . ', KES ' . number_format($amount, 2, '.', '') . ', reference ' . $reference . '.');
+                $collision = $findReferenceCollision($reference);
+                if ($collision !== null) {
+                    $error = $collision;
                 } else {
-                    $error = 'The expense could not be recorded.';
+                    $amount = $amountCents / 100;
+                    $stmt = $conn->prepare("INSERT INTO operating_expenses(expense_date,category,amount,description,payment_method,reference_number,recorded_by,recorded_by_name) VALUES (?,?,?,?,?,?,?,?)");
+                    if (!$stmt) {
+                        $error = 'The expense could not be prepared safely. Please try again.';
+                    } else {
+                        $stmt->bind_param('ssdsssis', $expenseDate, $category, $amount, $description, $method, $reference, $actorId, $actorName);
+                        try {
+                            $executed = $stmt->execute();
+                            if ($executed) {
+                                $expenseId = $stmt->insert_id;
+                                $success = 'Expense #' . $expenseId . ' recorded.';
+                                $logAction('Operating Expense', 'Expense #' . $expenseId . ' recorded: ' . $category . ', KES ' . number_format($amount, 2, '.', '') . ', reference ' . $reference . '.');
+                            } else {
+                                $error = 'The expense could not be recorded.';
+                            }
+                        } catch (Throwable $e) {
+                            error_log('Operating expense insert failed: ' . $e->getMessage());
+                            $error = 'The expense was not recorded. No financial record was changed.';
+                        }
+                        $stmt->close();
+                    }
                 }
-                $stmt->close();
             }
         } elseif ($action === 'void') {
             $expenseId = (int)($_POST['expense_id'] ?? 0);
@@ -61,24 +133,46 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $error = 'Enter a clear void reason of at least 5 characters.';
             } else {
                 $stmt = $conn->prepare("UPDATE operating_expenses SET status='voided',voided_by=?,voided_by_name=?,voided_at=NOW(),void_reason=? WHERE id=? AND status='active'");
-                $stmt->bind_param('issi', $actorId, $actorName, $reason, $expenseId);
-                $stmt->execute();
-                if ($stmt->affected_rows === 1) {
-                    $success = 'Expense #' . $expenseId . ' voided with its audit history retained.';
-                    $logAction('Expense Voided', 'Expense #' . $expenseId . ' voided. Reason: ' . $reason);
+                if (!$stmt) {
+                    $error = 'The expense could not be prepared for voiding safely.';
                 } else {
-                    $error = 'This expense is already voided or unavailable.';
+                    $stmt->bind_param('issi', $actorId, $actorName, $reason, $expenseId);
+                    try {
+                        $stmt->execute();
+                        if ($stmt->affected_rows === 1) {
+                            $success = 'Expense #' . $expenseId . ' voided with its audit history retained.';
+                            $logAction('Expense Voided', 'Expense #' . $expenseId . ' voided. Reason: ' . $reason);
+                        } else {
+                            $error = 'This expense is already voided or unavailable.';
+                        }
+                    } catch (Throwable $e) {
+                        error_log('Operating expense void failed: ' . $e->getMessage());
+                        $error = 'The expense could not be voided. No status was changed.';
+                    }
+                    $stmt->close();
                 }
-                $stmt->close();
             }
+        } else {
+            $error = 'Invalid expense action.';
         }
+
+        if ($success !== '') $_SESSION['expense_csrf'] = bin2hex(random_bytes(32));
     }
 }
 
 $defaultFrom = date('Y-m-01');
 $defaultTo = date('Y-m-d');
-$from = (string)($_GET['date_from'] ?? $defaultFrom);
-$to = (string)($_GET['date_to'] ?? $defaultTo);
+if (isset($_GET['date_from']) || isset($_GET['date_to'])) {
+    $candidateFrom = (string)($_GET['date_from'] ?? $defaultFrom);
+    $candidateTo = (string)($_GET['date_to'] ?? $defaultTo);
+    if ($isDate($candidateFrom) && $isDate($candidateTo)) {
+        if ($candidateFrom > $candidateTo) [$candidateFrom, $candidateTo] = [$candidateTo, $candidateFrom];
+        $_SESSION['expense_date_from'] = $candidateFrom;
+        $_SESSION['expense_date_to'] = $candidateTo;
+    }
+}
+$from = (string)($_SESSION['expense_date_from'] ?? $defaultFrom);
+$to = (string)($_SESSION['expense_date_to'] ?? $defaultTo);
 if (!$isDate($from)) $from = $defaultFrom;
 if (!$isDate($to)) $to = $defaultTo;
 if ($from > $to) [$from, $to] = [$to, $from];
@@ -115,7 +209,7 @@ $stmt->close();
 <?php if($error):?><div class="expense-notice error"><?=htmlspecialchars($error)?></div><?php endif;?>
 <?php if($success):?><div class="expense-notice ok"><?=htmlspecialchars($success)?></div><?php endif;?>
 <div class="expense-cards"><article class="expense-card"><small>Active expenses in period</small><strong><?=number_format((int)$summary['active_count'])?></strong></article><article class="expense-card"><small>Total operating expenses</small><strong>KES <?=number_format((float)$summary['active_total'],2)?></strong></article></div>
-<section class="expense-panel"><h3>Record non-salary expense</h3><form method="post" action="operating_expenses.php"><input type="hidden" name="csrf_token" value="<?=htmlspecialchars($_SESSION['expense_csrf'])?>"><input type="hidden" name="expense_action" value="add"><div class="expense-fields"><label>Expense date<input type="date" name="expense_date" value="<?=date('Y-m-d')?>" required></label><label>Category<select name="category" required><?php foreach($categories as $category):?><option><?=htmlspecialchars($category)?></option><?php endforeach;?></select></label><label>Amount (KES)<input type="number" name="amount" min="0.01" step="0.01" required></label><label class="wide">Description<textarea name="description" minlength="3" maxlength="500" rows="2" required placeholder="What was paid for?"></textarea></label><label>Payment method<select name="payment_method" required><?php foreach($methods as $method):?><option><?=htmlspecialchars($method)?></option><?php endforeach;?></select></label><label>Receipt / transaction reference<input name="reference_number" maxlength="100" required></label></div><button style="margin-top:10px">Record expense</button></form></section>
+<section class="expense-panel"><h3>Record non-salary expense</h3><form method="post" action="operating_expenses.php"><input type="hidden" name="csrf_token" value="<?=htmlspecialchars($_SESSION['expense_csrf'])?>"><input type="hidden" name="expense_action" value="add"><div class="expense-fields"><label>Expense date<input type="date" name="expense_date" value="<?=date('Y-m-d')?>" max="<?=date('Y-m-d')?>" required></label><label>Category<select name="category" required><?php foreach($categories as $category):?><option><?=htmlspecialchars($category)?></option><?php endforeach;?></select></label><label>Amount (KES)<input type="number" name="amount" min="0.01" max="9999999999.99" step="0.01" required></label><label class="wide">Description<textarea name="description" minlength="3" maxlength="500" rows="2" required placeholder="What was paid for?"></textarea></label><label>Payment method<select name="payment_method" required><?php foreach($methods as $method):?><option><?=htmlspecialchars($method)?></option><?php endforeach;?></select></label><label>Receipt / transaction reference<input name="reference_number" minlength="3" maxlength="100" pattern="[A-Za-z0-9][A-Za-z0-9._/-]{2,99}" title="Checked against expenses, payroll, sales payments, refunds and reversals" required></label></div><button style="margin-top:10px">Record expense</button></form></section>
 <div class="expense-layout">
 <section class="expense-panel"><h3>Expense register</h3><div class="expense-table-wrap"><table class="expense-table"><thead><tr><th>Date / ID</th><th>Category</th><th>Description</th><th>Amount</th><th>Payment evidence</th><th>Recorded by</th><th>Status / action</th></tr></thead><tbody>
 <?php if($records):foreach($records as $record):?><tr><td><?=date('d M Y',strtotime($record['expense_date']))?><br><small>#<?=(int)$record['id']?></small></td><td><?=htmlspecialchars($record['category'])?></td><td><?=htmlspecialchars($record['description'])?></td><td><strong>KES <?=number_format((float)$record['amount'],2)?></strong></td><td><?=htmlspecialchars($record['payment_method'])?><br><small><?=htmlspecialchars($record['reference_number'])?></small></td><td><?=htmlspecialchars($record['recorded_by_name'])?><br><small><?=date('d M Y H:i',strtotime($record['recorded_at']))?></small></td><td><span class="status <?=htmlspecialchars($record['status'])?>"><?=htmlspecialchars($record['status'])?></span><?php if($record['status']==='voided'):?><br><small><?=htmlspecialchars((string)$record['void_reason'])?><br>By <?=htmlspecialchars((string)$record['voided_by_name'])?></small><?php else:?><form method="post" action="operating_expenses.php" class="expense-inline" style="margin-top:7px"><input type="hidden" name="csrf_token" value="<?=htmlspecialchars($_SESSION['expense_csrf'])?>"><input type="hidden" name="expense_action" value="void"><input type="hidden" name="expense_id" value="<?=(int)$record['id']?>"><label style="flex:1">Void reason<input name="void_reason" minlength="5" maxlength="255" required></label><button class="danger">Void</button></form><?php endif;?></td></tr><?php endforeach;else:?><tr><td colspan="7" style="text-align:center;padding:25px;color:#64748b">No expenses were recorded in this period.</td></tr><?php endif;?>
