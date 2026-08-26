@@ -1,18 +1,20 @@
 -- Payroll security hardening: database-level integrity protections.
 -- Apply after database_migrations/2026_08_13_payroll.sql.
--- MariaDB/XAMPP-compatible version: generated columns are PERSISTENT so they can be indexed.
+-- MariaDB/XAMPP-compatible version.
 --
 -- IMPORTANT: Back up the database before running this migration.
--- If an ALTER TABLE reports duplicate existing data, stop and review the
--- duplicate rows rather than deleting payroll history automatically.
+-- Existing duplicate payment references are preserved for audit/history.
+-- New duplicate references are blocked by application checks and the
+-- cross-ledger trigger in 2026_08_26_payroll_cross_ledger_reference_guard.sql.
 
--- Preflight: these queries should return no rows before the unique guards are added.
+-- Preflight: review duplicate active payroll periods before adding the unique guard.
 SELECT employee_id, pay_period_start, pay_period_end, COUNT(*) AS active_records
 FROM payroll_records
 WHERE status IN ('draft','paid')
 GROUP BY employee_id, pay_period_start, pay_period_end
 HAVING COUNT(*) > 1;
 
+-- Informational only: legacy duplicate references are allowed to remain.
 SELECT UPPER(TRIM(reference_number)) AS normalized_reference, COUNT(*) AS uses
 FROM payroll_records
 WHERE reference_number IS NOT NULL
@@ -34,7 +36,7 @@ ALTER TABLE payroll_records
         ) PERSISTENT,
     ADD UNIQUE KEY uq_payroll_active_period
         (employee_id, pay_period_start, pay_period_end, active_period_guard),
-    ADD UNIQUE KEY uq_payroll_payment_reference
+    ADD KEY idx_payroll_normalized_reference
         (normalized_reference),
     ADD CONSTRAINT chk_payroll_amounts CHECK (
         basic_salary > 0
@@ -65,7 +67,6 @@ ALTER TABLE payroll_records
         )
     );
 
--- Salary profiles must also reject invalid amounts at the database boundary.
 ALTER TABLE staff_salary_profiles
     ADD CONSTRAINT chk_staff_salary_positive CHECK (
         monthly_basic_salary > 0 AND monthly_basic_salary <= 999999999.99
