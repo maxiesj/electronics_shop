@@ -2,10 +2,18 @@
 require_once __DIR__ . '/../session_auth.php';
 if (session_status() === PHP_SESSION_NONE) session_start();
 require_once __DIR__ . '/../db.php';
-if (!verifyWorkspaceClearance('payroll.php')) {
+if (!verifyExplicitWorkspaceClearance('payroll.php')) {
     header('Location: ../login.php?msg=err_unauthorized_access');
     exit;
 }
+
+header('Cache-Control: no-store, no-cache, must-revalidate, max-age=0');
+header('Pragma: no-cache');
+header('Expires: 0');
+header('X-Content-Type-Options: nosniff');
+header('X-Frame-Options: DENY');
+header('Referrer-Policy: same-origin');
+
 date_default_timezone_set('Africa/Nairobi');
 if (empty($_SESSION['payroll_csrf'])) $_SESSION['payroll_csrf'] = bin2hex(random_bytes(32));
 
