@@ -1,5 +1,6 @@
 -- Payroll security hardening: database-level integrity protections.
 -- Apply after database_migrations/2026_08_13_payroll.sql.
+-- MariaDB/XAMPP-compatible version: generated columns are PERSISTENT so they can be indexed.
 --
 -- IMPORTANT: Back up the database before running this migration.
 -- If an ALTER TABLE reports duplicate existing data, stop and review the
@@ -23,14 +24,14 @@ ALTER TABLE payroll_records
     ADD COLUMN active_period_guard TINYINT
         GENERATED ALWAYS AS (
             CASE WHEN status = 'voided' THEN NULL ELSE 1 END
-        ) VIRTUAL,
+        ) PERSISTENT,
     ADD COLUMN normalized_reference VARCHAR(100)
         GENERATED ALWAYS AS (
             CASE
                 WHEN reference_number IS NULL OR TRIM(reference_number) = '' THEN NULL
                 ELSE UPPER(TRIM(reference_number))
             END
-        ) VIRTUAL,
+        ) PERSISTENT,
     ADD UNIQUE KEY uq_payroll_active_period
         (employee_id, pay_period_start, pay_period_end, active_period_guard),
     ADD UNIQUE KEY uq_payroll_payment_reference
