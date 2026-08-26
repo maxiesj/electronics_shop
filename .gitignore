@@ -1,0 +1,20 @@
+# Sensitive configuration
+mail_config.php
+
+# Dependencies
+node_modules/
+
+# User/generated files
+uploads/
+outputs/
+
+# Environment/config secrets
+.env
+.env.*
+*.log
+
+# OS/editor files
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/

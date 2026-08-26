@@ -1,0 +1,17 @@
+body{
+    font-family: Arial;
+    margin:0;
+    padding:0;
+}
+
+h1{
+    text-align:center;
+}
+.myform{background-color:#f2f2f2;box-shadow:0 0 10px black;padding:10px;width:25%;margin:80px auto;border-radius:8px;}
+	button{width:40%;background-color:green;padding:5px;color:white;margin:5px auto;border-radius:10px;border:none;display:block;
+	cursor:pointer;
+	}
+	input{width:80%;margin:4px auto;display:block;padding:6px;border-radius:12px;border:none;}
+	input:hover{
+		box-shadow:0 0 3px green;
+	}

@@ -1,0 +1,11 @@
+loaded_h_0(function(_){var window=this;
+_.v("jLqWIc");
+var ZHy=class extends _.m{constructor(a){super(a)}};var $Hy=[0,_.E,_.D,_.E,-1];var aIy=_.Ob(ZHy,$Hy),bIy=_.Pb($Hy);var cIy=function(a,b){var c=document.querySelector(`#${a.params.Xja}`);if(!c)return!1;a.Oh=c instanceof HTMLTemplateElement?c.content.cloneNode(!0):a.params.cloneElement?c.cloneNode(!0):c;a.params.Tja&&a.Oh.classList.add(a.params.Tja);a.Oh.parentElement&&(a.w7a=a.Oh.parentElement,_.Gg(a.Oh,a.Oh.parentElement));b.appendChild(a.Oh);return!0},dIy=function(a){return new Promise(b=>{var c=null,d=!1,e=new MutationObserver(g=>{for(let h of g)for(let k of h.addedNodes)if(k.id===a.params.Xja){c();return}});
+e.observe(document.body,{childList:!0,subtree:!0});var f=(0,_.$n)(()=>{c()},5E3);c=()=>{d||(d=!0,e.disconnect(),(0,_.ao)(f),b())}})},eIy=class{constructor(a){this.params=a;this.w7a=this.Oh=null;if(_.pFe&&!document.querySelector(`#${this.params.Xja}`))throw Error("ZB`"+this.params.Xja);}getType(){return 31}cA({wk:a,yy:b}){var {node:c,HE:d}=_.RL(_.f5e);b({dispatch:()=>void d({Mg:_.PL(a)})});a.appendChild(c);b=cIy(this,a);_.oFe&&!b&&_.Og(a,"gZgazf");return{status:b?2:1}}async render({wk:a}){var b=(0,_.Rf)(),
+c=b();b=b(1);try{if(!this.Oh&&!cIy(this,a)){b(await c(dIy(this)));let d=cIy(this,a);if(_.nFe&&!d){_.Og(a,"gZgazf");return}}this.params.oka&&this.JI("show")}finally{c()}}Rlb(){if(this.params.Tja){let a;(a=this.Oh)==null||a.classList.remove(this.params.Tja)}this.params.oka&&this.JI("hide");this.Oh&&this.w7a&&(this.Oh.removeAttribute("jsowner"),this.w7a.appendChild(this.Oh))}JI(a){if(this.params.oka){let b,c,d=((b=this.Oh)==null?0:b.matches(this.params.oka))?this.Oh:(c=this.Oh)==null?void 0:c.querySelector(this.params.oka);
+d&&_.cw([new _.Wn(d,a)])}}L3a(){return{C2a:!0}}l3a(){return{C2a:!0}}serialize(){return bIy(this.lX())}lX(){var a=new ZHy;a=_.Vg(a,1,this.params.Xja);a=_.Oh(a,2,!!this.params.cloneElement);a=_.Vg(a,3,this.params.Tja);return _.Vg(a,4,this.params.oka)}};
+_.Zf(_.$oq,class extends _.lo{getInstance(a){return new eIy(a)}Yx(a){a=aIy(a);return new eIy({Xja:_.u(a,1),cloneElement:!!_.A(a,2),Tja:_.u(a,3),oka:_.u(a,4)})}async y1a(a){a=a.getAttribute("data-lbi");if(!a)throw Error("$B");a=aIy(Uint8Array.from(_.Na(a)));return new eIy({Xja:_.u(a,1),cloneElement:!!_.A(a,2),Tja:_.u(a,3),oka:_.u(a,4)})}});
+
+_.y();
+});
+// Google Inc.
