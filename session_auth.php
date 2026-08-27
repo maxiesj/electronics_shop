@@ -20,8 +20,8 @@ if (!isset($_SESSION['user_id']) || empty($_SESSION['user_id'])) {
     exit();
 }
 
-// 2. CRITICAL TIMEOUT GUARD: Automatically kicks out active tabs left idle for more than 15 minutes
-$max_idle_time = 900; // 15 minutes mapped in seconds
+// 2. CRITICAL TIMEOUT GUARD: Automatically kicks out active tabs left idle for more than 60 minutes
+$max_idle_time = 3600; // 60 minutes mapped in seconds
 
 if (isset($_SESSION['last_activity_timestamp']) && (time() - $_SESSION['last_activity_timestamp'] > $max_idle_time)) {
     session_unset();
