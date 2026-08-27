@@ -12,7 +12,7 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST' || empty($_SESSION['user_id'])) {
 }
 
 $last = (int)($_SESSION['last_activity_timestamp'] ?? time());
-if (time() - $last > 900) {
+if (time() - $last > 3600) {
     $_SESSION = [];
     session_destroy();
     http_response_code(401);
