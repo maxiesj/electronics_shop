@@ -3,10 +3,14 @@ require_once __DIR__ . '/../session_auth.php';
 require_once __DIR__ . '/../db.php';
 require_once __DIR__ . '/../trash_manager.php';
 
-// Trash is a dashboard workspace. If somebody opens trash.php directly,
-// route them back through the Admin dashboard shell so the page renders
-// inside the normal main-content area instead of as a standalone page.
-if (basename((string)($_SERVER['SCRIPT_NAME'] ?? '')) === 'trash.php') {
+// Trash is a dashboard workspace. Redirect only true browser navigation through
+// the dashboard shell. AJAX workspace requests must render this partial directly;
+// otherwise fetch() follows the redirect and injects a full dashboard document,
+// which can be misclassified as an expired authentication page.
+$isAjax = !empty($_SERVER['HTTP_X_REQUESTED_WITH'])
+    && strtolower((string)$_SERVER['HTTP_X_REQUESTED_WITH']) === 'xmlhttprequest';
+
+if (!$isAjax && basename((string)($_SERVER['SCRIPT_NAME'] ?? '')) === 'trash.php') {
     $entity = strtolower(trim((string)($_GET['entity'] ?? 'all')));
     if (!in_array($entity, ['all', 'product', 'category', 'brand'], true)) {
         $entity = 'all';
@@ -16,6 +20,10 @@ if (basename((string)($_SERVER['SCRIPT_NAME'] ?? '')) === 'trash.php') {
 }
 
 if (!verifyWorkspaceClearance('trash.php')) {
+    if ($isAjax) {
+        http_response_code(403);
+        exit('AUTH_ERROR');
+    }
     header('Location: ../login.php?msg=err_unauthorized_access');
     exit;
 }
