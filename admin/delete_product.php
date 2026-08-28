@@ -1,6 +1,7 @@
 <?php
 require_once __DIR__ . '/../session_auth.php';
 require_once __DIR__ . '/../db.php';
+require_once __DIR__ . '/../trash_manager.php';
 header('Content-Type: text/plain; charset=utf-8');
 
 if (!verifyWorkspaceClearance('warehouse.php')) {
@@ -23,41 +24,20 @@ if (!$productId || $productId < 1) {
 
 $conn->begin_transaction();
 try {
-    $find = $conn->prepare('SELECT product_name,image FROM products WHERE id=? FOR UPDATE');
-    $find->bind_param('i', $productId);
-    $find->execute();
-    $product = $find->get_result()->fetch_assoc();
-    $find->close();
-    if (!$product) throw new RuntimeException('NOT_FOUND');
-
-    // Delete the row before touching the file. Foreign-key protection can safely stop this operation.
-    $delete = $conn->prepare('DELETE FROM products WHERE id=?');
-    $delete->bind_param('i', $productId);
-    if (!$delete->execute()) throw new mysqli_sql_exception($delete->error, $delete->errno);
-    $delete->close();
-
-    $userId=(int)($_SESSION['user_id']??0);
-    $staffName=(string)($_SESSION['fullname']??'System operator');
-    $details="Product #{$productId} ({$product['product_name']}) removed from the catalog.";
-    $log=$conn->prepare("INSERT INTO staff_logs(user_id,staff_name,action_type,action_details) VALUES(?,?,'Inventory Delete',?)");
-    if($log){$log->bind_param('iss',$userId,$staffName,$details);$log->execute();$log->close();}
+    softDeleteProduct($conn, (int)$productId);
     $conn->commit();
-
-    $image=basename((string)$product['image']);
-    if($image!==''&&$image!=='no_image.jpg'){
-        $path=realpath(__DIR__.'/../uploads/'.$image);
-        $uploadRoot=realpath(__DIR__.'/../uploads');
-        if($path&&$uploadRoot&&strpos($path,$uploadRoot.DIRECTORY_SEPARATOR)===0&&is_file($path))@unlink($path);
-    }
-    exit('DELETION_SUCCESS');
-} catch (mysqli_sql_exception $e) {
-    $conn->rollback();
-    error_log('Delete product failed: '.$e->getMessage());
-    if((int)$e->getCode()===1451){http_response_code(409);exit('PRODUCT_IN_USE');}
-    http_response_code(500);exit('DELETE_FAILED');
+    exit('TRASH_SUCCESS');
 } catch (Throwable $e) {
     $conn->rollback();
-    if($e->getMessage()==='NOT_FOUND'){http_response_code(404);exit('NOT_FOUND');}
-    error_log('Delete product failed: '.$e->getMessage());
-    http_response_code(500);exit('DELETE_FAILED');
+    if ($e->getMessage() === 'NOT_FOUND') {
+        http_response_code(404);
+        exit('NOT_FOUND');
+    }
+    if ($e->getMessage() === 'ALREADY_TRASHED') {
+        http_response_code(409);
+        exit('ALREADY_TRASHED');
+    }
+    error_log('Trash product failed: ' . $e->getMessage());
+    http_response_code(500);
+    exit('TRASH_FAILED');
 }
