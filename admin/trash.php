@@ -3,6 +3,18 @@ require_once __DIR__ . '/../session_auth.php';
 require_once __DIR__ . '/../db.php';
 require_once __DIR__ . '/../trash_manager.php';
 
+// Trash is a dashboard workspace. If somebody opens trash.php directly,
+// route them back through the Admin dashboard shell so the page renders
+// inside the normal main-content area instead of as a standalone page.
+if (basename((string)($_SERVER['SCRIPT_NAME'] ?? '')) === 'trash.php') {
+    $entity = strtolower(trim((string)($_GET['entity'] ?? 'all')));
+    if (!in_array($entity, ['all', 'product', 'category', 'brand'], true)) {
+        $entity = 'all';
+    }
+    header('Location: dashboard.php?view=trash.php&entity=' . rawurlencode($entity));
+    exit;
+}
+
 if (!verifyWorkspaceClearance('trash.php')) {
     header('Location: ../login.php?msg=err_unauthorized_access');
     exit;
@@ -66,14 +78,14 @@ $stmt->close();
 <section class="trash-hub">
 <?php if($message):?><div class="trash-notice success" role="status"><?=htmlspecialchars($message)?></div><?php endif;?>
 <?php if($error):?><div class="trash-notice error" role="alert"><?=htmlspecialchars($error)?></div><?php endif;?>
-<header class="trash-hero"><div><h2>Trash & Recovery</h2><p>Recover deleted operational records. Financial and audit ledgers are never permanently deleted here.</p></div><a class="trash-back ajax-link" data-target="warehouse.php" href="warehouse.php">Back to Warehouse</a></header>
+<header class="trash-hero"><div><h2>Trash & Recovery</h2><p>Recover deleted operational records. Financial and audit ledgers are never permanently deleted here.</p></div><a class="trash-back ajax-link" data-target="warehouse.php" href="dashboard.php?view=warehouse.php">Back to Warehouse</a></header>
 <nav class="trash-tabs" aria-label="Trash filters">
-<?php foreach(['all'=>'General Trash','product'=>'Products','category'=>'Categories','brand'=>'Brands'] as $key=>$label):?><a class="trash-tab <?=$filter===$key?'active':''?>" href="trash.php?entity=<?=$key?>" data-target="trash.php?entity=<?=$key?>"><?=$label?></a><?php endforeach;?>
+<?php foreach(['all'=>'General Trash','product'=>'Products','category'=>'Categories','brand'=>'Brands'] as $key=>$label):?><a class="trash-tab <?=$filter===$key?'active':''?> ajax-link" href="dashboard.php?view=trash.php&amp;entity=<?=urlencode($key)?>" data-target="trash.php?entity=<?=urlencode($key)?>"><?=$label?></a><?php endforeach;?>
 </nav>
 <div class="trash-panel"><div class="trash-table-wrap"><table class="trash-table"><thead><tr><th>Type</th><th>Item</th><th>Deleted by</th><th>Deleted at</th><th>Recovery</th></tr></thead><tbody>
 <?php if($trashRows):foreach($trashRows as $row):$meta=json_decode((string)($row['metadata']??''),true)?:[];?>
 <tr><td><?=htmlspecialchars(ucfirst($row['entity_type']))?></td><td><div class="trash-label"><?=htmlspecialchars($row['entity_label'])?></div><?php if(!empty($meta['sku'])):?><div class="trash-meta">SKU: <?=htmlspecialchars($meta['sku'])?></div><?php endif;?></td><td><?=htmlspecialchars($row['deleted_by_name'] ?: 'Unknown operator')?></td><td><?=htmlspecialchars($row['deleted_at'])?></td><td>
-<form method="post" action="trash.php?entity=<?=urlencode($filter)?>" style="margin:0" onsubmit="return confirm('Restore this item?');"><input type="hidden" name="csrf_token" value="<?=htmlspecialchars($_SESSION['trash_csrf'])?>"><input type="hidden" name="restore_action" value="1"><input type="hidden" name="trash_entry_id" value="<?=(int)$row['id']?>"><input type="hidden" name="entity_id" value="<?=(int)$row['entity_id']?>"><input type="hidden" name="entity_type" value="<?=htmlspecialchars($row['entity_type'])?>"><button class="restore-btn" type="submit" <?=$row['entity_type']!=='product'?'disabled title="Restore support will be enabled when this module is connected"':''?>><?=$row['entity_type']==='product'?'Restore':'Pending integration'?></button></form>
+<form method="post" action="dashboard.php?view=trash.php&amp;entity=<?=urlencode($filter)?>" style="margin:0" onsubmit="return confirm('Restore this item?');"><input type="hidden" name="csrf_token" value="<?=htmlspecialchars($_SESSION['trash_csrf'])?>"><input type="hidden" name="restore_action" value="1"><input type="hidden" name="trash_entry_id" value="<?=(int)$row['id']?>"><input type="hidden" name="entity_id" value="<?=(int)$row['entity_id']?>"><input type="hidden" name="entity_type" value="<?=htmlspecialchars($row['entity_type'])?>"><button class="restore-btn" type="submit" <?=$row['entity_type']!=='product'?'disabled title="Restore support will be enabled when this module is connected"':''?>><?=$row['entity_type']==='product'?'Restore':'Pending integration'?></button></form>
 </td></tr>
 <?php endforeach;else:?><tr><td colspan="5" class="trash-empty">Trash is empty for this filter.</td></tr><?php endif;?>
 </tbody></table></div></div></section>
