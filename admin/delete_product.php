@@ -26,7 +26,8 @@ $conn->begin_transaction();
 try {
     softDeleteProduct($conn, (int)$productId);
     $conn->commit();
-    exit('TRASH_SUCCESS');
+    // Preserve the existing success token expected by the warehouse AJAX handler.
+    exit('DELETION_SUCCESS');
 } catch (Throwable $e) {
     $conn->rollback();
     if ($e->getMessage() === 'NOT_FOUND') {
