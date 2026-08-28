@@ -11,7 +11,7 @@ if(isset($_GET['msg'])&&$_GET['msg']==='err_session_expired'&&$_SERVER['REQUEST_
 $msg='';$success_msg='';
 if(isset($_GET['msg'])){
     if($_GET['msg']==='err_unauthorized_access')$msg='Access denied. Please log in to continue.';
-    elseif($_GET['msg']==='err_session_expired')$msg='Your session expired after 15 minutes of inactivity. Please sign in again.';
+    elseif($_GET['msg']==='err_session_expired')$msg='Your session expired after 60 minutes of inactivity. Please sign in again.';
     elseif($_GET['msg']==='logout_success')$success_msg='Your session was securely closed.';
     elseif($_GET['msg']==='registered')$success_msg='Account created successfully. You can now log in.';
     elseif($_GET['msg']==='reactivated')$success_msg='Welcome back. Your customer account was restored with your new password.';
@@ -171,7 +171,7 @@ if($_SERVER['REQUEST_METHOD']==='POST'&&isset($_POST['login'])){
       <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars($_SESSION['csrf_token'] ?? ''); ?>">
       <div class="form-group"><label for="email">Email address</label><div class="auth-input-wrap"><span class="auth-input-icon">&#9993;</span><input type="email" id="email" name="email" required autocomplete="email" placeholder="name@example.com" value="<?php echo isset($_POST['email']) ? htmlspecialchars($_POST['email']) : ''; ?>"></div></div>
       <div class="form-group"><label for="password">Password</label><div class="auth-input-wrap"><span class="auth-input-icon">&#128274;</span><input type="password" id="password" name="password" required autocomplete="current-password" placeholder="Enter your password"><button type="button" class="auth-password-toggle" data-password-toggle="password" aria-label="Show or hide password" aria-pressed="false">Show</button></div></div>
-      <div class="auth-row"><span class="auth-check">Secure 15-minute inactivity protection</span><a href="forgot_password.php" class="auth-link" data-email-required data-auth-route="recovery">Forgot password?</a></div>
+      <div class="auth-row"><span class="auth-check">Secure 60-minute inactivity protection</span><a href="forgot_password.php" class="auth-link" data-email-required data-auth-route="recovery">Forgot password?</a></div>
       <input type="hidden" id="login" name="login" value="1">
       <button type="submit" id="loginSubmitBtn" class="auth-submit" <?php echo ($_SESSION['login_attempts'] >= 3 && $current_time < $_SESSION['lockout_time']) ? 'disabled' : ''; ?>><span class="auth-spinner" id="loginLoader"></span><span id="loginBtnText">Log In</span></button>
     </form>
