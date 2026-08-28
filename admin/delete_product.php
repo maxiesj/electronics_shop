@@ -1,6 +1,7 @@
 <?php
 require_once __DIR__ . '/../session_auth.php';
 require_once __DIR__ . '/../db.php';
+require_once __DIR__ . '/../trash_service.php';
 header('Content-Type: text/plain; charset=utf-8');
 
 if (!verifyWorkspaceClearance('warehouse.php')) {
@@ -23,14 +24,15 @@ if (!$productId || $productId < 1) {
 
 $conn->begin_transaction();
 try {
-    $find = $conn->prepare('SELECT product_name,image FROM products WHERE id=? FOR UPDATE');
+    $find = $conn->prepare('SELECT * FROM products WHERE id=? FOR UPDATE');
     $find->bind_param('i', $productId);
     $find->execute();
     $product = $find->get_result()->fetch_assoc();
     $find->close();
     if (!$product) throw new RuntimeException('NOT_FOUND');
 
-    // Delete the row before touching the file. Foreign-key protection can safely stop this operation.
+    trashArchiveRecord($conn,'product',$productId,(string)$product['product_name'],$product);
+    // The database snapshot is retained for recovery; keep the image file in place.
     $delete = $conn->prepare('DELETE FROM products WHERE id=?');
     $delete->bind_param('i', $productId);
     if (!$delete->execute()) throw new mysqli_sql_exception($delete->error, $delete->errno);
@@ -43,12 +45,6 @@ try {
     if($log){$log->bind_param('iss',$userId,$staffName,$details);$log->execute();$log->close();}
     $conn->commit();
 
-    $image=basename((string)$product['image']);
-    if($image!==''&&$image!=='no_image.jpg'){
-        $path=realpath(__DIR__.'/../uploads/'.$image);
-        $uploadRoot=realpath(__DIR__.'/../uploads');
-        if($path&&$uploadRoot&&strpos($path,$uploadRoot.DIRECTORY_SEPARATOR)===0&&is_file($path))@unlink($path);
-    }
     exit('DELETION_SUCCESS');
 } catch (mysqli_sql_exception $e) {
     $conn->rollback();
@@ -58,6 +54,7 @@ try {
 } catch (Throwable $e) {
     $conn->rollback();
     if($e->getMessage()==='NOT_FOUND'){http_response_code(404);exit('NOT_FOUND');}
+    if($e->getMessage()==='TRASH_MIGRATION_REQUIRED'){http_response_code(503);exit('TRASH_MIGRATION_REQUIRED');}
     error_log('Delete product failed: '.$e->getMessage());
     http_response_code(500);exit('DELETE_FAILED');
 }

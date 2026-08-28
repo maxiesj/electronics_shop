@@ -2,6 +2,7 @@
 if(session_status()===PHP_SESSION_NONE)session_start();
 require_once __DIR__.'/../db.php';
 require_once __DIR__.'/../session_auth.php';
+require_once __DIR__.'/../trash_service.php';
 if(!verifyExplicitWorkspaceClearance('manage_customers.php')){
     header('Location: staff_dashboard.php?msg=err_unauthorized_access');exit;
 }
@@ -28,6 +29,7 @@ if($_SERVER['REQUEST_METHOD']==='POST'&&isset($_POST['customer_action'])){
                 $customer=$lookup->get_result()->fetch_assoc();$lookup->close();
                 if(!$customer||strtolower(trim((string)$customer['role_name']))!=='customer')throw new DomainException('The selected account is not a customer.');
                 if(strtolower((string)$customer['account_status'])==='purged')throw new DomainException('This customer is already deactivated.');
+                trashArchiveRecord($conn,'customer',$customer_id,(string)$customer['fullname'],$customer);
                 $update=$conn->prepare("UPDATE users SET account_status='purged',reset_token_hash=NULL,reset_token_expires_at=NULL WHERE id=?");
                 if(!$update)throw new RuntimeException('Customer update preparation failed.');
                 $update->bind_param('i',$customer_id);if(!$update->execute()||$update->affected_rows!==1){$update->close();throw new RuntimeException('Customer update failed.');}$update->close();

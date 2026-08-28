@@ -806,6 +806,7 @@ $recent = $conn->query("SELECT o.id, u.fullname, o.total_amount, o.order_status,
             ['manage_staff.php', 'Manage Staff Network', '&#128101;', 'ajax-link']
         ],
         'System' => [
+            ['trash.php', 'Trash & Recovery', '&#128465;', 'ajax-link'],
             ['db_backup.php', 'Core Data Backup', '&#128190;', 'ajax-link'],
             ['workspace_tracker.php', 'Workspace Tracker', '&#128737;', 'ajax-link']
         ]
@@ -991,13 +992,22 @@ document.addEventListener("DOMContentLoaded", () => {
             const [res] = await Promise.all([fetchPromise, animationPromise]);
 
             if (res.ok) {
-                const responseText = await res.text();
+                let responseText = await res.text();
 
                 // DETECT EXPIRED SESSION: Check if the returned text is actually a login gate
                 if (responseText.includes('AUTH_ERROR') || responseText.includes('SESSION_TIMEOUT') || responseText.includes('SECURE_AUTHENTICATION') || responseText.includes('name="password"') || responseText.includes('SESSION EXPIRED')) {
                     console.warn("Session invalidation detected. Redirecting to authentication portal...");
                     window.location.href = '../session_expire.php'; // Securely clear the expired session before returning to login.
                     return;
+                }
+
+                // Component routes must not inject a second dashboard shell. If an older
+                // module returns a complete HTML document, retain only its workspace body.
+                const parsedResponse = new DOMParser().parseFromString(responseText, 'text/html');
+                const nestedWorkspace = parsedResponse.querySelector('#dynamic-workspace');
+                const containsDashboardShell = parsedResponse.querySelector('#mainSidebarPanel');
+                if (nestedWorkspace && containsDashboardShell) {
+                    responseText = nestedWorkspace.innerHTML;
                 }
 
                 if (view) {

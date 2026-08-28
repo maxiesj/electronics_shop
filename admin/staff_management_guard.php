@@ -1,4 +1,5 @@
 <?php
+require_once __DIR__.'/../trash_service.php';
 if (!function_exists('staffManagementAudit')) {
     function staffManagementAudit(mysqli $conn, string $details): void {
         $operator=(int)($_SESSION['user_id'] ?? 0);
@@ -142,6 +143,13 @@ if ($submitted_action==='suspend_staff_account' && isset($_POST[$submitted_actio
             $stmt=$conn->prepare($sql);$stmt->bind_param('i',$id);$stmt->execute();$target=$stmt->get_result()->fetch_assoc();$stmt->close();
             if (!$target || $target['role_name']==='customer') throw new DomainException('Staff account not found.');
             if ($target['role_name']==='super_admin' && ($_SESSION['role'] ?? '')!=='super_admin') throw new DomainException('Only a super administrator can suspend this account.');
+            $target['_permissions']=[];
+            $permissionSnapshot=$conn->prepare('SELECT target_view FROM staff_permissions WHERE user_id=?');
+            $permissionSnapshot->bind_param('i',$id);$permissionSnapshot->execute();
+            $permissionResult=$permissionSnapshot->get_result();
+            while($permissionResult&&$permissionRow=$permissionResult->fetch_assoc())$target['_permissions'][]=$permissionRow['target_view'];
+            $permissionSnapshot->close();
+            trashArchiveRecord($conn,'staff',$id,(string)$target['fullname'],$target);
             $sql='UPDATE users SET account_status=\'purged\' WHERE id=?';
             $stmt=$conn->prepare($sql);
             $stmt->bind_param('i',$id);

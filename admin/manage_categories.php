@@ -1,6 +1,7 @@
 <?php
 require_once __DIR__.'/../session_auth.php';
 require_once __DIR__.'/../db.php';
+require_once __DIR__.'/../trash_service.php';
 if(!verifyWorkspaceClearance('manage_categories.php')){header('Location: ../login.php?msg=err_unauthorized_access');exit;}
 if(empty($_SESSION['taxonomy_csrf']))$_SESSION['taxonomy_csrf']=bin2hex(random_bytes(32));
 $message='';$error='';
@@ -60,6 +61,7 @@ if($_SERVER['REQUEST_METHOD']==='POST'){
                         if(!$record)throw new RuntimeException('NOT_FOUND');
                         $used=$conn->prepare("SELECT COUNT(*) total FROM products WHERE {$productColumn}=?");$used->bind_param('i',$id);$used->execute();$usage=(int)$used->get_result()->fetch_assoc()['total'];$used->close();
                         if($usage>0)throw new RuntimeException('IN_USE:'.$usage);
+                        trashArchiveRecord($conn,$kind,$id,(string)$record['name'],['id'=>$id,$column=>$record['name']]);
                         $delete=$conn->prepare("DELETE FROM {$table} WHERE id=?");$delete->bind_param('i',$id);
                         if(!$delete->execute()||$delete->affected_rows!==1)throw new RuntimeException('DELETE_FAILED');$delete->close();
                         taxonomyAudit($conn,'removed',$label,$id,$record['name']);$conn->commit();$message="{$label} {$record['name']} was removed.";
