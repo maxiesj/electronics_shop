@@ -6,26 +6,49 @@ if (!function_exists('getOrderSettlementState')) {
     {
         $orderSql = "SELECT total_amount, order_status FROM orders WHERE id = ? LIMIT 1" . ($lockOrder ? " FOR UPDATE" : "");
         $orderStmt = $conn->prepare($orderSql);
+        if (!$orderStmt) return null;
         $orderStmt->bind_param("i", $orderId);
-        $orderStmt->execute();
+        if (!$orderStmt->execute()) {
+            $orderStmt->close();
+            return null;
+        }
         $order = $orderStmt->get_result()->fetch_assoc();
         $orderStmt->close();
         if (!$order) return null;
 
-        $paymentStmt = $conn->prepare("SELECT COALESCE(SUM(amount), 0.00) AS paid_total FROM payments WHERE order_id = ? AND LOWER(TRIM(payment_status)) = 'completed'");
+        // When a caller requests a lock, lock the underlying payment rows as well.
+        // This prevents a concurrent payment/refund from changing settlement while
+        // fulfillment or cancellation is being finalized.
+        $paidTotal = 0.00;
+        $paymentSql = "SELECT id, amount, payment_status FROM payments WHERE order_id = ?" . ($lockOrder ? " FOR UPDATE" : "");
+        $paymentStmt = $conn->prepare($paymentSql);
+        if (!$paymentStmt) return null;
         $paymentStmt->bind_param("i", $orderId);
-        $paymentStmt->execute();
-        $payment = $paymentStmt->get_result()->fetch_assoc();
+        if (!$paymentStmt->execute()) {
+            $paymentStmt->close();
+            return null;
+        }
+        $paymentResult = $paymentStmt->get_result();
+        while ($paymentRow = $paymentResult->fetch_assoc()) {
+            if (strtolower(trim((string)$paymentRow['payment_status'])) === 'completed') {
+                $paidTotal += (float)$paymentRow['amount'];
+            }
+        }
         $paymentStmt->close();
+        $paidTotal = round($paidTotal, 2);
 
-        $planStmt = $conn->prepare("SELECT balance_remaining, status FROM layaway_plans WHERE order_id = ? ORDER BY id DESC LIMIT 1");
+        $planSql = "SELECT balance_remaining, status FROM layaway_plans WHERE order_id = ? ORDER BY id DESC LIMIT 1" . ($lockOrder ? " FOR UPDATE" : "");
+        $planStmt = $conn->prepare($planSql);
+        if (!$planStmt) return null;
         $planStmt->bind_param("i", $orderId);
-        $planStmt->execute();
+        if (!$planStmt->execute()) {
+            $planStmt->close();
+            return null;
+        }
         $plan = $planStmt->get_result()->fetch_assoc();
         $planStmt->close();
 
         $totalAmount = round((float)$order['total_amount'], 2);
-        $paidTotal = round((float)($payment['paid_total'] ?? 0), 2);
         $paymentOutstanding = max(0, round($totalAmount - $paidTotal, 2));
         $layawayOutstanding = $plan ? max(0, round((float)$plan['balance_remaining'], 2)) : 0.00;
         $outstandingBalance = max($paymentOutstanding, $layawayOutstanding);
