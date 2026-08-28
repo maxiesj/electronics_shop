@@ -1,6 +1,6 @@
 (function () {
   'use strict';
-  const limitMs = 15 * 60 * 1000;
+  const limitMs = 60 * 60 * 1000;
   const warningMs = 60 * 1000;
   const expireUrl = window.ADONAK_SESSION_EXPIRE_URL || 'session_expire.php';
   const keepaliveUrl = window.ADONAK_SESSION_KEEPALIVE_URL || 'session_keepalive.php';
@@ -22,7 +22,7 @@
       '<div class="adonak-idle-card">' +
       '<div class="adonak-idle-icon">&#9203;</div>' +
       '<h2 id="adonak-idle-title">Session Expiring Soon</h2>' +
-      '<p>For your security, this account will sign out after 15 minutes without activity.</p>' +
+      '<p>For your security, this account will sign out after 60 minutes without activity.</p>' +
       '<strong id="adonak-idle-countdown">60 seconds remaining</strong>' +
       '<button type="button" id="adonak-stay-signed-in">Stay Signed In</button>' +
       '</div>';
@@ -61,6 +61,11 @@
     if (now - lastMarkedAt < 3000) return;
     lastMarkedAt = now;
     lastActivity = now;
+    try {
+      localStorage.setItem(activityKey, String(now));
+    } catch (e) {
+      // Local storage can be unavailable in hardened/private browser modes.
+    }
     if (modal) modal.classList.remove('is-visible');
     pingServer(false);
   }
